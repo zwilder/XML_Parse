@@ -53,9 +53,10 @@ typedef struct Token {
 } Token;
 
 /*****
- * Main function
+ * Main functions
  *****/
 void simple_parse_xml(const char *filename);
+XMLNode* parse_xml(const char *filename);
 
 /*****
  * XMLAttribute

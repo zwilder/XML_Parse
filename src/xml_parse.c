@@ -21,33 +21,44 @@
 #include <xml_parse.h>
 
 /*
- * TODO: Check memory handling of XMLNode->text
- * TODO: Reject blank strings added as XMLNode->text 
- * TODO: Make simple_parse_xml return root_node of XMLNode list
  * TODO: XMLAttribute should be a hash table to look up key/value pairs (might
  * be overkill, how many attributes can a tag REALLY be expected to have?
  */
 
 void simple_parse_xml(const char *filename) {
+    XMLNode *root_node = parse_xml(filename);
+
+    if(root_node) {
+        print_XMLNode(root_node, 0);
+    }
+
+    destroy_XMLNode(root_node);
+}
+
+XMLNode* parse_xml(const char *filename) {
     FILE *file = fopen(filename, "r");
     if(!file) {
         printf("Error opening: %s.\n", filename);
-        return;
+        return NULL;
     }
+    // This makes sure the text buffer is big enough
+    fseek(file, 0L, SEEK_END);
+    long res = ftell(file);
+    fseek(file, 0L, SEEK_SET);
     
     char ch;
+    char buffer[1024];
+    char *text_buffer = malloc(res);
+    char *tag_name = NULL;
+    char *key = NULL;
+    char *value = NULL;
     bool in_tag = false;
     bool self_closing = false;
-    char buffer[1024];
-    char text_buffer[1024];
     int text_buffer_index = 0;
     int buffer_index = 0;
     XMLNode *new_node = NULL;
     XMLNode *current_node = NULL;
-    XMLNode *root_node = NULL; // Function should return this (eventually)
-    char *tag_name = NULL;
-    char *key = NULL;
-    char *value = NULL;
+    XMLNode *root_node = NULL; // Function returns this
     Token *sp_tokens = NULL;
     Token *qt_tokens = NULL;
     Token *attr_pair = NULL;
@@ -124,20 +135,27 @@ void simple_parse_xml(const char *filename) {
             buffer_index += 1;
         } else {
             // Outside of tag, this is text between tags
-            text_buffer[text_buffer_index] = ch;
-            text_buffer_index += 1;
+            if(text_buffer_index < (res - 1)) {
+                text_buffer[text_buffer_index] = ch;
+                text_buffer_index += 1;
+            } else {
+                printf("Text buffer overflow! Buffer size %ld\n",res);
+            }
         }
     }
 
 
-    print_XMLNode(root_node, 0);
 
     // Cleanup 
-    destroy_XMLNode(root_node); // Again, this function should (eventually) return root_node
     destroy_token_list(qt_tokens);
     destroy_token_list(sp_tokens);
     destroy_token_list(value_token);
+    if(text_buffer) {
+        free(text_buffer);
+    }
     fclose(file);
+
+    return root_node;
 }
 
 /*****
@@ -238,13 +256,16 @@ void add_attribute_XMLNode(XMLNode *node, char *key, char *value) {
 
 void add_text_XMLNode(XMLNode *node, char *text) {
     if(!node || !text) return;
-    /*
-    if(node->text) {
-        free(text);
-        node->text = NULL;
+    bool isempty = true;
+    int i = 0;
+    for(i = 0; text[i] != '\0'; i++) {
+        if((text[i] != ' ') && (text[i] != '\t') && (text[i] != '\n')) {
+            isempty = false;
+        }
     }
-    */
-    node->text = strdup(text);
+    if(!isempty) {
+        node->text = strdup(text);
+    }
 }
 
 void add_child_XMLNode(XMLNode *parent, XMLNode *node) {
@@ -285,11 +306,11 @@ void print_XMLNode(XMLNode *node, int lvl) {
     XMLNode *child = node->children;
     int i = 0;
     for(i = 0; i < lvl; i++) {
-        printf("  ");
+        printf("--");
     }
 
     //Print tag
-    printf("%d - <%s>\n", lvl, node->tag);
+    printf("%d - %s\n", lvl, node->tag);
 
     if(node->attributes) {
         print_XMLAttributes(node->attributes, lvl);
@@ -299,7 +320,7 @@ void print_XMLNode(XMLNode *node, int lvl) {
         for(i = 0; i < lvl + 1; i++) {
             printf("  ");
         }
-        printf("Text: %s\n", node->text);
+        printf("\"\"\" %s \"\"\"\n", node->text);
     }
     
     //Print children
@@ -325,11 +346,14 @@ Token* create_token_blank(int strsize) {
      * anything to the string yet */
     Token *node = malloc(sizeof(Token));
     if(!node) return NULL;
-    node->s = malloc(sizeof(char) * (strsize + 1));
-    if(!node->s) {
+    //TODO: This is silly. Allocating twice the amount for the string fixes
+    //read/write memory errors in Valgrind.
+    node->s = malloc(2 * sizeof(char) * (strsize + 1));
+    if(node->s == NULL) {
         free(node);
         return NULL;
     }
+    node->s[0] = '\0';
     node->length = strsize;
     node->next = NULL;
     return node;
@@ -362,7 +386,17 @@ void push_blank_token_list(Token **head, int sz) {
 }
 
 Token *create_token_list(char *str, char delim, char excluder) {
-    /* Given a char* array string, split it by char delim and return a linked list of tokens */
+    /* Given a char* array string, split it by char delim and return a linked list of tokens.
+     * Beautifully ignores any delimiters contained between two "excluder"
+     * chars. If you passed in, for example, the string "Really cool fish fry",
+     * with a delimiter of ' ' and excluder of 'f' this would return a list
+     * containing:
+     * - Really
+     * - cool
+     * - fish fry (space is ignored between the two 'f's)
+     *
+     * Pass in '\0' for the excluder if not needed. 
+     */
     if(!str) {
         return NULL;
     }
