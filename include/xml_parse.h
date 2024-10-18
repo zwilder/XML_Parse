@@ -63,6 +63,7 @@ XMLNode* parse_xml(const char *filename);
  *****/
 XMLAttribute *create_XMLAttribute(char *key, char *value);
 void destroy_XMLAttribute(XMLAttribute *attr);
+XMLAttribute* find_attribute(XMLAttribute* root, const char *key);
 
 /*****
  * XMLNode
@@ -74,6 +75,10 @@ void add_text_XMLNode(XMLNode *node, char *text);
 void add_child_XMLNode(XMLNode *parent, XMLNode *node);
 void print_XMLAttributes(XMLAttribute *attr, int lvl);
 void print_XMLNode(XMLNode *node, int lvl);
+int count_siblings_XMLNode(XMLNode *node);
+XMLNode* find_tag(XMLNode *root, const char *tag);
+XMLNode* find_tag_keyvalue(XMLNode *root, const char *tag, 
+        const char *key, const char *value);
 
 /*****
  * Token
